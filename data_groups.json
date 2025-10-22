@@ -1,0 +1,10 @@
+{
+  "surface_air_temperature_A": {
+    "training": ["LandSeaMask", "Topography", "EmisIR_A", "TotH2OVap_A"],
+    "target": "SurfAirTemp_A"
+  },
+  "surface_air_temperature_D": {
+    "training": ["LandSeaMask", "Topography", "EmisIR_D", "TotH2OVap_D"],
+    "target": "SurfAirTemp_D"
+  }
+}
