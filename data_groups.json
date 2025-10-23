@@ -1,10 +1,50 @@
 {
   "surface_air_temperature_A": {
-    "training": ["LandSeaMask", "Topography", "EmisIR_A", "TotH2OVap_A"],
+    "training": [
+      "LandSeaMask",
+      "Topography",
+      "OLR_A",
+      "CloudFrc_A",
+      "TotO3_A",
+      "RelHumSurf_A",
+      "EmisIR_A",
+      "TropPres_A",
+      "TropHeight_A"
+    ],
     "target": "SurfAirTemp_A"
   },
   "surface_air_temperature_D": {
-    "training": ["LandSeaMask", "Topography", "EmisIR_D", "TotH2OVap_D"],
+    "training": [
+      "LandSeaMask",
+      "Topography",
+      "OLR_D",
+      "CloudFrc_D",
+      "TotO3_D",
+      "RelHumSurf_D",
+      "EmisIR_D",
+      "TropPres_D",
+      "TropHeight_D"
+    ],
     "target": "SurfAirTemp_D"
+  },
+  "ozone_A": {
+    "training": [
+      "LandSeaMask",
+      "Topography",
+      "Temperature_A",
+      "TotH2OVap_A",
+      "EmisIR_A"
+    ],
+    "target": "TotO3_A"
+  },
+  "ozone_D": {
+    "training": [
+      "LandSeaMask",
+      "Topography",
+      "Temperature_D",
+      "TotH2OVap_D",
+      "EmisIR_D"
+    ],
+    "target": "TotO3_D"
   }
 }

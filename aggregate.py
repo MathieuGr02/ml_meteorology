@@ -15,6 +15,8 @@ This script provides methods which aid in the preparing of data through the crea
 class DataGroups(Enum):
     SurfaceAirTemperatureA = "surface_air_temperature_A"
     SurfaceAirTemperatureD = "surface_air_temperature_D"
+    OzoneA = "ozone_A"
+    OzoneD = "ozone_D"
 
 
 def get_group(group: DataGroups) -> tuple[list[str], str]:
@@ -52,7 +54,7 @@ def to_feature_vector(
     [Longitude, Latitude, <rest of the features>]
     - Without coordinates
     [<rest of features>]
-    """
+
     i, j = np.meshgrid(np.arange(90, -90, -1), np.arange(-180, 180, 1), indexing="ij")
     feature_vector = np.column_stack((i.ravel(), j.ravel()))
 
@@ -71,6 +73,25 @@ def to_feature_vector(
 
     if not with_coordinates:
         feature_vector = feature_vector[:, 2:]
+    """
+
+    lat = data.Latitude.values
+    lon = data.Longitude.values
+
+    lon2d, lat2d = np.meshgrid(lon, lat)
+
+    if len(data.values.shape) == 3:
+        tuple = ()
+        for v in data.values:
+            tuple += (v.reshape(-1, 1),)
+        features = np.column_stack(tuple)
+    else:
+        features = data.values.reshape(-1, 1)
+
+    if with_coordinates:
+        feature_vector = np.column_stack((lon2d.ravel(), lat2d.ravel(), features))
+    else:
+        feature_vector = features
 
     return feature_vector
 
@@ -134,10 +155,10 @@ def aggregate_data(
 def get_data(
     group: DataGroups,
 ) -> tuple[
-    list[npt.NDArray[np.float64]],
-    list[npt.NDArray[np.float64]],
-    list[npt.NDArray[np.float64]],
-    list[npt.NDArray[np.float64]],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
 ]:
     """
     Get all data fully prepared.
@@ -158,10 +179,10 @@ def get_data(
 
     n, *_ = test_data.shape
 
-    new_training_data = []
-    new_training_target_data = []
-    new_test_data = []
-    new_test_target_data = []
+    new_training_data = None
+    new_training_target_data = None
+    new_test_data = None
+    new_test_target_data = None
 
     scaler = StandardScaler()
     for i in range(n):
@@ -176,10 +197,31 @@ def get_data(
         training_data_scaled = scaler.fit_transform(training_data_wo_na)
         test_data_scaled = scaler.fit_transform(test_data_wo_na)
 
-        new_training_data.append(training_data_scaled)
-        new_training_target_data.append(training_target_data_wo_na)
-        new_test_data.append(test_data_scaled)
-        new_test_target_data.append(test_target_data_wo_na)
+        if new_training_data is None:
+            new_training_data = training_data_scaled
+        else:
+            new_training_data = np.concatenate(
+                (new_training_data, training_data_scaled)
+            )
+
+        if new_test_data is None:
+            new_test_data = test_data_scaled
+        else:
+            new_test_data = np.concatenate((new_test_data, test_data_scaled))
+
+        if new_training_target_data is None:
+            new_training_target_data = training_target_data_wo_na
+        else:
+            new_training_target_data = np.concatenate(
+                (new_training_target_data, training_target_data_wo_na)
+            )
+
+        if new_test_target_data is None:
+            new_test_target_data = test_target_data_wo_na
+        else:
+            new_test_target_data = np.concatenate(
+                (new_test_target_data, test_target_data_wo_na)
+            )
 
     return (
         new_training_data,
