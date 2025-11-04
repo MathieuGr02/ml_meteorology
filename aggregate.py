@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 import numpy.typing as npt
 import pandas as pd
@@ -6,17 +7,14 @@ import xarray as xr
 from enum import Enum
 import json
 import numpy as np
+from xarray.core.utils import OrderedSet
+from groups import DataGroups
+import matplotlib.pyplot as plt
+from sklearn.impute import SimpleImputer
 
 """
 This script provides methods which aid in the preparing of data through the creation of feature vectors etc.
 """
-
-
-class DataGroups(Enum):
-    SurfaceAirTemperatureA = "surface_air_temperature_A"
-    SurfaceAirTemperatureD = "surface_air_temperature_D"
-    OzoneA = "ozone_A"
-    OzoneD = "ozone_D"
 
 
 def get_group(group: DataGroups) -> tuple[list[str], str]:
@@ -98,7 +96,7 @@ def to_feature_vector(
 
 def drop_na(
     training: npt.NDArray[np.float64], target: npt.NDArray[np.float64]
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """
     Drop all NaN from both training and target data
 
@@ -106,9 +104,9 @@ def drop_na(
 
     `training` and `target` without NaN values
     """
-    target = target.ravel()
-    mask = ~np.isnan(training).any(axis=1) & ~np.isnan(target)
-    return training[mask], target[mask]
+    # target = target.ravel()
+    mask = ~np.isnan(training).any(axis=1) & ~np.isnan(target).any(axis=1)
+    return training[mask], target[mask], mask
 
 
 def aggregate_data(
@@ -137,8 +135,8 @@ def aggregate_data(
         # Create feature vector out of training keys
         for key in training:
             subset = dataset[key]
-            if key == "LandSeaMask":
-                subset.data[subset.data == 0] = np.nan
+            # if key == "LandSeaMask":
+            #    subset.data[subset.data == 0] = np.nan
             subset_training_data.append(to_feature_vector(subset))
 
         subset = dataset[target]
@@ -150,6 +148,97 @@ def aggregate_data(
         np.array(training_data),
         np.array(target_data),
     )
+
+
+def get_time_data(
+    group: DataGroups,
+    file_keyword: str | None = None,
+    lag: int = 1,
+    lon_low: int = -180,
+    lon_high: int = 180,
+    lat_low: int = -90,
+    lat_high: int = 90,
+):
+    keys = OrderedSet(["Longitude", "Latitude"])
+    lon_low, lon_high = lon_low + 180, lon_high + 180
+    lat_low, lat_high = (
+        90 - lat_high,
+        90 - lat_low,
+    )
+
+    print(f"{lon_low} - {lon_high} | {lat_low} - {lat_high}")
+
+    training, _ = get_group(group)
+
+    files = os.listdir("./data")
+
+    if file_keyword is not None:
+        files = filter(lambda f: f.__contains__(file_keyword), files)
+
+    files = sorted(
+        files,
+        key=lambda s: datetime.strptime(
+            s.split(".")[1] + "." + s.split(".")[2] + "." + s.split(".")[3], "%Y.%m.%d"
+        ),
+    )
+
+    cube = []
+
+    for file in files:
+        dataset = xr.open_dataset(f"./data/{file}")
+
+        subcube = []
+        for key in training:
+            subset = dataset[key]
+            if len(subset.dims) == 2:
+                keys.add(key)
+            else:
+                for dim in list(subset.dims):
+                    if dim not in keys:
+                        for value in subset[dim].values:
+                            keys.add(f"{dim}-{value}")
+            if len(subset.shape) == 3:
+                subset = subset[:, lat_low:lat_high, lon_low:lon_high]
+            else:
+                subset = subset[lat_low:lat_high, lon_low:lon_high]
+            features = to_feature_vector(subset)
+            subcube.append(features)
+
+        cube.append(combine_feature_vectors(subcube))
+
+    cube = np.array(cube)
+
+    cube = np.array([cube[i : i + lag] for i in range(len(cube) - lag)])
+
+    chunks, time, samples, features = cube.shape
+
+    imp = SimpleImputer(strategy="mean")
+
+    data = None
+    targets = None
+    for chunk in range(chunks):
+        training_chunk = cube[chunk]
+        for i in range(training_chunk.shape[0]):
+            training_chunk[i, :] = imp.fit_transform(training_chunk[i, :])
+
+        X = training_chunk[:-1].transpose(1, 0, 2)
+        n, t, f = X.shape
+        X = X.reshape(n, f * t)
+        y = training_chunk[-1]
+
+        if data is None:
+            data = X
+        else:
+            data = np.row_stack((data, X))
+
+        if targets is None:
+            targets = y
+        else:
+            targets = np.row_stack((targets, y))
+
+    data, targets = np.array(data), np.array(targets)
+
+    return data, targets, list(keys), (chunks, time, samples, features)
 
 
 def get_data(
@@ -184,7 +273,6 @@ def get_data(
     new_test_data = None
     new_test_target_data = None
 
-    scaler = StandardScaler()
     for i in range(n):
         training_data_wo_na, training_target_data_wo_na = drop_na(
             training_data[i], training_target_data[i]
@@ -194,8 +282,14 @@ def get_data(
         )
 
         # Scale data
+
+        scaler = StandardScaler()
         training_data_scaled = scaler.fit_transform(training_data_wo_na)
-        test_data_scaled = scaler.fit_transform(test_data_wo_na)
+        test_data_scaled = scaler.transform(test_data_wo_na)
+
+        # scaler = StandardScaler()
+        # training_target_data_scaled = scaler.fit_transform(training_target_data_wo_na)
+        # test_target_data_scaled = scaler.transform(test_target_data_wo_na)
 
         if new_training_data is None:
             new_training_data = training_data_scaled

@@ -210,3 +210,6 @@ rawdata/
 data/
 figures/
 *.txt
+*.png
+*.csv
+*.bkp

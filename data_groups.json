@@ -9,7 +9,8 @@
       "RelHumSurf_A",
       "EmisIR_A",
       "TropPres_A",
-      "TropHeight_A"
+      "TropHeight_A",
+      "SurfAirTemp_A"
     ],
     "target": "SurfAirTemp_A"
   },
@@ -27,13 +28,49 @@
     ],
     "target": "SurfAirTemp_D"
   },
+  "time_surface_air_temperature_A": {
+    "training": [
+      "LandSeaMask",
+      "Topography",
+      "OLR_A",
+      "CloudFrc_A",
+      "TotO3_A",
+      "RelHumSurf_A",
+      "EmisIR_A",
+      "TropPres_A",
+      "TropHeight_A",
+      "SurfAirTemp_A"
+    ],
+    "target": ""
+  },
+  "time_surface_air_temperature_D": {
+    "training": [
+      "LandSeaMask",
+      "Topography",
+      "OLR_D",
+      "CloudFrc_D",
+      "TotO3_D",
+      "RelHumSurf_D",
+      "EmisIR_D",
+      "TropPres_D",
+      "TropHeight_D",
+      "SurfAirTemp_D"
+    ],
+    "target": ""
+  },
   "ozone_A": {
     "training": [
       "LandSeaMask",
       "Topography",
       "Temperature_A",
       "TotH2OVap_A",
-      "EmisIR_A"
+      "EmisIR_A",
+      "OLR_A",
+      "Emis_MW_A",
+      "O3_VMR_A",
+      "CO_VMR_A",
+      "CH4_VMR_A",
+      "TropHeight_A"
     ],
     "target": "TotO3_A"
   },
@@ -43,8 +80,40 @@
       "Topography",
       "Temperature_D",
       "TotH2OVap_D",
-      "EmisIR_D"
+      "EmisIR_D",
+      "OLR_D",
+      "Emis_MW_D",
+      "O3_VMR_D",
+      "CO_VMR_D",
+      "CH4_VMR_D",
+      "TropHeight_D"
     ],
     "target": "TotO3_D"
+  },
+  "relative_humidity_surface_A": {
+    "training": [
+      "LandSeaMask",
+      "Topography",
+      "SurfAirTemp_A",
+      "SurfSkinTemp_A",
+      "SurfPres_Forecast_A",
+      "H2O_MMR_A",
+      "H2O_MMR_Surf_A",
+      "RelHum_A"
+    ],
+    "target": "RelHumSurf_A"
+  },
+  "relative_humidity_surface_D": {
+    "training": [
+      "LandSeaMask",
+      "Topography",
+      "SurfAirTemp_D",
+      "SurfSkinTemp_D",
+      "SurfPres_Forecast_D",
+      "H2O_MMR_D",
+      "H2O_MMR_Surf_D",
+      "RelHum_D"
+    ],
+    "target": "RelHumSurf_D"
   }
 }
