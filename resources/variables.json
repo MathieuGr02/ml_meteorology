@@ -1,0 +1,4 @@
+{
+  "single_variables": ["LandSeaMask", "Topography"],
+  "multi_variables": ["Temperature", "EmisIR"]
+}

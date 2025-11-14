@@ -16,25 +16,6 @@ from gpytorch.variational import VariationalStrategy
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-class GP(gpytorch.models.ApproximateGP):
-    def __init__(self, points):
-        variational_distribution = CholeskyVariationalDistribution(points.size(0))
-        variational_strategy = VariationalStrategy(
-            self,
-            points,
-            variational_distribution,
-            learn_inducing_locations=True,
-        )
-        super(GP, self).__init__(variational_strategy)
-        self.mean_module = gpytorch.means.ConstantMean()
-        self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel())
-
-    def forward(self, x):
-        mean = self.mean_module(x)
-        covar = self.covar_module(x)
-        return gpytorch.distributions.MultivariateNormal(mean, covar)
-
-
 def train(gp, likelihood, trainloader, lr=1e-2, epoch=20) -> None:
     optimizer = torch.optim.Adam(gp.parameters(), lr=lr)
 

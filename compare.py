@@ -5,9 +5,9 @@ import seaborn as sns
 from torch import nn
 import matplotlib.pyplot as plt
 import neural_network
-import gaussian_process
+import gaussian_process_old
 import k_nearest_neighbors
-import regression
+import regression_old
 import gpytorch
 import time
 from typing import Any
@@ -15,14 +15,6 @@ import pandas as pd
 import numpy as np
 
 sns.set_theme()
-
-
-def track_time(f) -> tuple[float, Any]:
-    start = time.time()
-    result = f()
-    end = time.time()
-    diff = end - start
-    return diff, result
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -83,30 +75,30 @@ if __name__ == "__main__":
     # Linear Regression
     print("Linear Regression")
     lr_training_A, lr_training_target_A, lr_test_A, lr_test_target_A = (
-        regression.prepare_data(group_A)
+        regression_old.prepare_data(group_A)
     )
     lr_training_D, lr_training_target_D, lr_test_D, lr_test_target_D = (
-        regression.prepare_data(group_D)
+        regression_old.prepare_data(group_D)
     )
 
     lr_A, p_A = group_A.get_linear_regression()
     lr_D, p_D = group_D.get_linear_regression()
 
-    training_p_A, test_p_A = regression.degree_fit(lr_training_A, lr_test_A, p_A)
-    training_p_D, test_p_D = regression.degree_fit(lr_training_D, lr_test_D, p_D)
+    training_p_A, test_p_A = regression_old.degree_fit(lr_training_A, lr_test_A, p_A)
+    training_p_D, test_p_D = regression_old.degree_fit(lr_training_D, lr_test_D, p_D)
 
     lr_train_time_A, _ = track_time(
-        lambda: regression.train(lr_A, training_p_A, lr_training_target_A)
+        lambda: regression_old.train(lr_A, training_p_A, lr_training_target_A)
     )
     lr_train_time_D, _ = track_time(
-        lambda: regression.train(lr_D, training_p_D, lr_training_target_D)
+        lambda: regression_old.train(lr_D, training_p_D, lr_training_target_D)
     )
 
     lr_predict_time_A, lr_error_A = track_time(
-        lambda: regression.predict(lr_A, test_p_A, lr_test_target_A)
+        lambda: regression_old.predict(lr_A, test_p_A, lr_test_target_A)
     )
     lr_predict_time_D, lr_error_D = track_time(
-        lambda: regression.predict(lr_D, test_p_D, lr_test_target_D)
+        lambda: regression_old.predict(lr_D, test_p_D, lr_test_target_D)
     )
 
     errors_A["Linear Regression"] = lr_error_A
@@ -160,32 +152,32 @@ if __name__ == "__main__":
     epoch_D, lr_D, amount_inducing_points_D = group_D.get_gaussian_process()
 
     gp_inducing_points_A, gp_trainloader_A, gp_testloader_A = (
-        gaussian_process.prepare_data(group_A, amount_inducing_points_A)
+        gaussian_process_old.prepare_data(group_A, amount_inducing_points_A)
     )
     gp_inducing_points_D, gp_trainloader_D, gp_testloader_D = (
-        gaussian_process.prepare_data(group_D, amount_inducing_points_D)
+        gaussian_process_old.prepare_data(group_D, amount_inducing_points_D)
     )
 
-    gp_A = gaussian_process.GP(gp_inducing_points_A)
-    gp_D = gaussian_process.GP(gp_inducing_points_D)
+    gp_A = gaussian_process_old.GP(gp_inducing_points_A)
+    gp_D = gaussian_process_old.GP(gp_inducing_points_D)
 
     likelihood = gpytorch.likelihoods.GaussianLikelihood()
 
     gp_train_time_A, _ = track_time(
-        lambda: gaussian_process.train(
+        lambda: gaussian_process_old.train(
             gp_A, likelihood, gp_trainloader_A, epoch=epoch_A, lr=lr_A
         )
     )
     gp_train_time_D, _ = track_time(
-        lambda: gaussian_process.train(
+        lambda: gaussian_process_old.train(
             gp_D, likelihood, gp_trainloader_D, epoch=epoch_D, lr=lr_D
         )
     )
     gp_predict_time_A, gp_error_A = track_time(
-        lambda: gaussian_process.predict(gp_A, likelihood, gp_testloader_A)
+        lambda: gaussian_process_old.predict(gp_A, likelihood, gp_testloader_A)
     )
     gp_predict_time_D, gp_error_D = track_time(
-        lambda: gaussian_process.predict(gp_D, likelihood, gp_testloader_D)
+        lambda: gaussian_process_old.predict(gp_D, likelihood, gp_testloader_D)
     )
 
     errors_A["Gaussian Process"] = gp_error_A

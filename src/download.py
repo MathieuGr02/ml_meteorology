@@ -1,9 +1,9 @@
-from time import sleep
-from dotenv import load_dotenv
 import os
-import requests
 from pathlib import Path
+from time import sleep
 
+import requests
+from dotenv import load_dotenv
 
 """
 This script is for the downloading of the data
@@ -30,7 +30,7 @@ def request_data(url: str, file: str):
         f.write(response.content)
 
 
-if __name__ == "__main__":
+def download_files():
     print("Reading file")
 
     # Summary files of required data
@@ -58,3 +58,7 @@ if __name__ == "__main__":
 
                     request_data(url, file)
                     sleep(1)
+
+
+if __name__ == "__main__":
+    download_files()

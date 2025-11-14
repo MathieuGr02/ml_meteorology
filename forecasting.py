@@ -1,12 +1,15 @@
 import itertools
+
+from cuml import KNeighborsRegressor
 from aggregate import DataGroups, get_data, get_time_data
 from tqdm import tqdm
-from regression import train, degree_fit, predict
+from regression_old import train, degree_fit, predict
 from cuml.linear_model import LinearRegression
 from cuml.preprocessing import PolynomialFeatures
 from cuml.metrics import mean_absolute_error
 import numpy as np
 import matplotlib.pyplot as plt
+from
 
 if __name__ == "__main__":
     group = DataGroups.SurfaceAirTemperatureA
@@ -39,8 +42,12 @@ if __name__ == "__main__":
 
     print(X_train.shape)
 
+    knr = KNeighborsRegressor(n_nei)
+
     p = PolynomialFeatures(2)
     lr = LinearRegression()
+
+    LinearRegression()
 
     X_train_p, X_test_p = degree_fit(X_train, X_test, p)
     train(lr, X_train_p, y_train)

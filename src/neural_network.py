@@ -1,17 +1,101 @@
 import itertools
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-from tqdm import tqdm
+from typing import Any, override
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
 import torch
 from torch import nn
+from tqdm import tqdm
 
+from model import Config, Model
+from utils import track_time
 
 sns.set_theme()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+class NeuralNetwork(Model):
+    def __init__(self, network, loss_function, lr: float, epoch: int, config: Config):
+        super().__init__(config)
+        self.network = network
+        self.lr = lr
+        self.epoch = epoch
+        self.loss_function = loss_function
+
+    def name(self) -> str:
+        return "Neural Network"
+
+    def network_name(self) -> str:
+        return self.network.__str__()
+
+    def run(self):
+        trainloader = self.train_data()
+        testloader = self.test_data()
+
+        self.train_time, _ = track_time(lambda: self._train(trainloader))
+        self.predict_time, _ = track_time(lambda: self._predict(testloader))
+
+    def _train(self, trainloader):
+        self.network.to(device)
+
+        epoch_losses = []
+
+        optimizer = torch.optim.Adam(self.network.parameters(), lr=self.lr)
+        for epoch in range(self.epoch):
+            running_loss = 0
+            count = 0
+
+            for i, data in enumerate(trainloader, 0):
+                X, y = data
+                X, y = X.to(device).float(), y.to(device).float()
+                optimizer.zero_grad()
+
+                outputs = self.network(X)
+
+                loss = self.loss_function(outputs.squeeze(), y)
+
+                loss.backward()
+
+                optimizer.step()
+
+                running_loss += loss.item()
+                count += 1
+
+            avg_loss = running_loss / count
+            epoch_losses.append(avg_loss)
+
+    def _predict(self, testloader):
+        self.network.eval()
+
+        outputs = ()
+
+        with torch.no_grad():
+            for X, y in testloader:
+                X, y = X.to(device).float(), y.to(device).float()
+                outputs += (self.network(X).cpu(),)
+
+        self.output = np.row_stack(outputs)
+
+    @override
+    def train_data(self) -> Any:
+        X_train, y_train, self.keys, _ = super().train_data()
+        train_data = MeteoData(X_train, y_train)
+        trainloader = torch.utils.data.DataLoader(
+            train_data, batch_size=512, shuffle=True, num_workers=10
+        )
+        return trainloader
+
+    @override
+    def test_data(self) -> Any:
+        self.X_test, self.y_test, *_ = super().test_data()
+        test_data = MeteoData(self.X_test, self.y_test)
+        testloader = torch.utils.data.DataLoader(
+            test_data, batch_size=512, shuffle=True, num_workers=10
+        )
+        return testloader
 
 
 class MLP(nn.Module):
@@ -25,62 +109,6 @@ class MLP(nn.Module):
 
     def forward(self, x):
         return self.layers(x)
-
-
-def train(network, trainloader, loss_function, lr=1e-3, epoch=30):
-    print(f"Training {network.name} with lr={lr} | epoch={epoch}")
-    network.to(device)
-
-    epoch_losses = []
-
-    optimizer = torch.optim.Adam(network.parameters(), lr=lr)
-    for epoch in range(epoch):
-        running_loss = 0
-        count = 0
-
-        # print(f"Epoch {epoch}")
-
-        for i, data in enumerate(trainloader, 0):
-            X, y = data
-            X, y = X.to(device).float(), y.to(device).float()
-            optimizer.zero_grad()
-
-            outputs = network(X)
-
-            loss = loss_function(outputs.squeeze(), y)
-
-            loss.backward()
-
-            optimizer.step()
-
-            running_loss += loss.item()
-            count += 1
-
-        avg_loss = running_loss / count
-        epoch_losses.append(avg_loss)
-
-    fig = plt.figure(figsize=(10, 5))
-    sns.lineplot(epoch_losses)
-    # plt.show()
-
-
-def predict(network, testloader):
-    loss_function = nn.L1Loss()
-
-    network.eval()
-    loss_function.eval()
-
-    losses = []
-
-    with torch.no_grad():
-        for X, y in testloader:
-            X, y = X.to(device).float(), y.to(device).float()
-            outputs = network(X)
-            l = loss_function(outputs.squeeze(), y)
-            losses.append(l.item())
-
-    avg = np.average(losses)
-    return avg
 
 
 class MeteoData:
@@ -105,12 +133,8 @@ def prepare_data(group):
     training, training_target, test, test_target = get_data(group)
 
     print(f"Shape {training.shape}")
-    train_data = MeteoData(training, training_target)
     test_data = MeteoData(test, test_target)
 
-    trainloader = torch.utils.data.DataLoader(
-        train_data, batch_size=512, shuffle=True, num_workers=10
-    )
     testloader = torch.utils.data.DataLoader(
         test_data, batch_size=512, shuffle=True, num_workers=10
     )

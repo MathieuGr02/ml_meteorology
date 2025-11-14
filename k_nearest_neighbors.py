@@ -1,7 +1,7 @@
 from collections import defaultdict
 from cuml.metrics import mean_absolute_error
 from cuml.neighbors import KNeighborsRegressor
-from aggregate import DataGroups, get_data
+from aggregate import DataGroups, get_data, get_time_data
 import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,9 +14,9 @@ def train(knr, X, y) -> None:
     knr.fit(X, y)
 
 
-def predict(knr, X, y) -> float:
+def predict(knr, X, y):
     output = knr.predict(X)
-    return mean_absolute_error(output, y)
+    return mean_absolute_error(output, y), output
 
 
 def prepare_data(group: DataGroups):
@@ -25,10 +25,15 @@ def prepare_data(group: DataGroups):
 
 if __name__ == "__main__":
     groups = [
-        DataGroups.SurfaceAirTemperatureA,
-        DataGroups.OzoneA,
-        DataGroups.RelativeHumiditySurfaceA,
+        DataGroups.SurfaceAirTemperatureA
+        # DataGroups.OzoneA,
+        # DataGroups.RelativeHumiditySurfaceA,
     ]
+
+    lon_low = -20
+    lon_high = 60
+    lat_low = 30
+    lat_high = 80
 
     for group in groups:
         print("Getting data")
@@ -37,12 +42,33 @@ if __name__ == "__main__":
 
         results = defaultdict(list)
 
-        training, training_target, test, test_target = prepare_data(group)
+        X_train, y_train, keys, original_shape = get_time_data(
+            group,
+            "2015",
+            lag=7,
+            lon_low=lon_low,
+            lon_high=lon_high,
+            lat_low=lat_low,
+            lat_high=lat_high,
+        )
+        X_test, y_test, keys, original_shape = get_time_data(
+            group,
+            "2016",
+            lag=7,
+            lon_low=lon_low,
+            lon_high=lon_high,
+            lat_low=lat_low,
+            lat_high=lat_high,
+        )
+
+        key = "SurfAirTemp_A"
+        key_index = keys.index(key)
 
         for size in sizes:
             knr = KNeighborsRegressor(n_neighbors=size)
-            train(knr, training, training_target)
-            error = predict(knr, test, test_target)
+            train(knr, X_train, y_train)
+            error, output = predict(knr, X_test, y_test)
+            error = mean_absolute_error(y_test[:, key_index], output[:, key_index])
             results[size].append(error)
 
         errors = [results[key] for key in results]
@@ -54,4 +80,4 @@ if __name__ == "__main__":
         plt.ylabel(f"Mean Absolute Error (MAE) | {group.get_unit()}")
         plt.xlabel("Number of Neighbours")
         plt.tight_layout()
-        plt.savefig(f"figures/knn_opt_{group.value}.png")
+        plt.savefig(f"figures/knn_opt_{group.value}_forecast.png")

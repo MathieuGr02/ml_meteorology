@@ -24,5 +24,6 @@ dependencies:
   - tqdm
   - jupyterlab
   - pip
+  - python-dotenv
   - pip:
       - cupy-cuda12x

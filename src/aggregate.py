@@ -1,30 +1,41 @@
-from datetime import datetime
+import json
 import os
+from datetime import datetime
+from enum import Enum
+
+import matplotlib.pyplot as plt
+import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 import xarray as xr
-from enum import Enum
-import json
-import numpy as np
-from xarray.core.utils import OrderedSet
-from groups import DataGroups
-import matplotlib.pyplot as plt
 from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+from xarray.core.utils import OrderedSet
+
+from config import Config
 
 """
 This script provides methods which aid in the preparing of data through the creation of feature vectors etc.
 """
 
 
-def get_group(group: DataGroups) -> tuple[list[str], str]:
+def get_variables() -> tuple[list[str], list[str], list[str]]:
     """
-    Get training and target keys from a data group in the `data_groups.json` file
+    Get variables of the dataset
+
+    # Returns
+    All single meta variables (1) and multiple variables which have a A and D variable (2, 3)
+    - returns (1), (2), (3)
     """
-    with open("data_groups.json", "r") as json_groups:
-        json_groups = json.load(json_groups)
-        group_keys = json_groups[group.value]
-        return (group_keys["training"], group_keys["target"])
+    with open("resources/variables.json", "r") as variables:
+        json_file = json.load(variables)
+        single_variables = json_file["single_variables"]
+        multi_variables = json_file["multi_variables"]
+
+        multi_variables_A = [f"{var}_A" for var in multi_variables]
+        multi_variables_D = [f"{var}_D" for var in multi_variables]
+
+        return single_variables, multi_variables_A, multi_variables_D
 
 
 def combine_feature_vectors(data):
@@ -52,25 +63,6 @@ def to_feature_vector(
     [Longitude, Latitude, <rest of the features>]
     - Without coordinates
     [<rest of features>]
-
-    i, j = np.meshgrid(np.arange(90, -90, -1), np.arange(-180, 180, 1), indexing="ij")
-    feature_vector = np.column_stack((i.ravel(), j.ravel()))
-
-    n, _ = feature_vector.shape
-
-    variables = list(filter(lambda v: v not in ["Latitude", "Longitude"], data.dims))
-    # Sometimes the DataArray is 3D, so get a 2D slice and add as feature to feature vector
-    if len(variables) > 0:
-        for variable in variables:
-            for i in range(len(data[variable].values)):
-                feature_vector = np.column_stack(
-                    (feature_vector, data[i].values.ravel())
-                )
-    else:
-        feature_vector = np.column_stack((feature_vector, data.values.ravel()))
-
-    if not with_coordinates:
-        feature_vector = feature_vector[:, 2:]
     """
 
     lat = data.Latitude.values
@@ -135,8 +127,6 @@ def aggregate_data(
         # Create feature vector out of training keys
         for key in training:
             subset = dataset[key]
-            # if key == "LandSeaMask":
-            #    subset.data[subset.data == 0] = np.nan
             subset_training_data.append(to_feature_vector(subset))
 
         subset = dataset[target]
@@ -150,25 +140,17 @@ def aggregate_data(
     )
 
 
-def get_time_data(
-    group: DataGroups,
-    file_keyword: str | None = None,
-    lag: int = 1,
-    lon_low: int = -180,
-    lon_high: int = 180,
-    lat_low: int = -90,
-    lat_high: int = 90,
-):
+def get_time_data(config: Config, file_keyword: str):
     keys = OrderedSet(["Longitude", "Latitude"])
-    lon_low, lon_high = lon_low + 180, lon_high + 180
+    lon_low, lon_high = config.lon_low + 180, config.lon_high + 180
     lat_low, lat_high = (
-        90 - lat_high,
-        90 - lat_low,
+        90 - config.lat_high,
+        90 - config.lat_low,
     )
 
     print(f"{lon_low} - {lon_high} | {lat_low} - {lat_high}")
 
-    training, _ = get_group(group)
+    single, multi_A, multi_D = get_variables()
 
     files = os.listdir("./data")
 
@@ -187,44 +169,91 @@ def get_time_data(
     for file in files:
         dataset = xr.open_dataset(f"./data/{file}")
 
-        subcube = []
-        for key in training:
-            subset = dataset[key]
-            if len(subset.dims) == 2:
-                keys.add(key)
-            else:
-                for dim in list(subset.dims):
-                    if dim not in keys:
-                        for value in subset[dim].values:
-                            keys.add(f"{dim}-{value}")
-            if len(subset.shape) == 3:
-                subset = subset[:, lat_low:lat_high, lon_low:lon_high]
-            else:
-                subset = subset[lat_low:lat_high, lon_low:lon_high]
-            features = to_feature_vector(subset)
-            subcube.append(features)
+        # Iterate over A and D variables
+        # Process A and then D of the same day to add them after eachother in the matrix to represent 12 h skips
+        for multi in [multi_A, multi_D]:
+            subcube = []
+            # Iterate over all feature keys
+            for key in single + multi:
+                subset = dataset[key]
 
-        cube.append(combine_feature_vectors(subcube))
+                # Index grid scope
+                if len(subset.shape) == 3:
+                    subset = subset[:, lat_low:lat_high, lon_low:lon_high]
+                else:
+                    subset = subset[lat_low:lat_high, lon_low:lon_high]
+
+                # Add key to keys list, and if key has multiple subkeys, add all subkeys
+                if len(subset.dims) == 2:
+                    keys.add(key)
+                else:
+                    for dim in list(subset.dims):
+                        if dim not in keys:
+                            for value in subset[dim].values:
+                                transformed_key = key
+                                if "_A" in key:
+                                    transformed_key = key.replace("_A", "")
+                                if "_D" in key:
+                                    transformed_key = key.replace("_D", "")
+                                keys.add(f"{transformed_key}-{dim}-{value}")
+
+                features = to_feature_vector(subset)
+                subcube.append(features)
+
+            # Stack different key feature vectors into one
+            # Key: x has N x k and Key: y has N x l
+            # => output N x (k + l - 2) (-2 because of the longitude and latitude which do not get duplicated)
+            # Add the feature vector of the day A / D to the cube s.t. it has a shape (2 * #days, #samples, #features)
+            cube.append(combine_feature_vectors(subcube))
 
     cube = np.array(cube)
-
-    cube = np.array([cube[i : i + lag] for i in range(len(cube) - lag)])
-
-    chunks, time, samples, features = cube.shape
+    steps, samples, features = cube.shape
 
     imp = SimpleImputer(strategy="mean")
 
+    for i in range(cube.shape[0]):
+        cube[i] = imp.fit_transform(cube[i])
+
     data = None
     targets = None
+    for i in range(config.lag, steps - config.leads):
+        lag_subset = cube[i - config.lag : i]
+        y = cube[i + config.leads]
+
+        X = lag_subset.transpose(1, 0, 2)
+        n, t, f = X.shape
+        X = X.reshape(n, f * t)
+
+        if data is None:
+            data = X
+        else:
+            data = np.row_stack((data, X))
+
+        if targets is None:
+            targets = y
+        else:
+            targets = np.row_stack((targets, y))
+
+    data, targets = np.array(data), np.array(targets)
+
+    return data, targets, list(keys), cube.shape
+
+    cube = np.array([cube[i : i + config.lag] for i in range(len(cube) - config.lag)])
+
+    chunks, time, samples, features = cube.shape
+
     for chunk in range(chunks):
         training_chunk = cube[chunk]
         for i in range(training_chunk.shape[0]):
             training_chunk[i, :] = imp.fit_transform(training_chunk[i, :])
 
+        print(training_chunk.shape)
         X = training_chunk[:-1].transpose(1, 0, 2)
         n, t, f = X.shape
         X = X.reshape(n, f * t)
         y = training_chunk[-1]
+        print(X.shape)
+        quit()
 
         if data is None:
             data = X
@@ -241,9 +270,7 @@ def get_time_data(
     return data, targets, list(keys), (chunks, time, samples, features)
 
 
-def get_data(
-    group: DataGroups,
-) -> tuple[
+def get_data() -> tuple[
     npt.NDArray[np.float64],
     npt.NDArray[np.float64],
     npt.NDArray[np.float64],
