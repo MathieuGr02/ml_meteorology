@@ -18,6 +18,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class NeuralNetwork(Model):
+    epoch: int
+    lr: float
+
     def __init__(self, network, loss_function, lr: float, epoch: int, config: Config):
         super().__init__(config)
         self.network = network
@@ -30,6 +33,15 @@ class NeuralNetwork(Model):
 
     def network_name(self) -> str:
         return self.network.__str__()
+
+    def get_learning_rate(self) -> float:
+        return self.lr
+
+    def get_epoch(self) -> int:
+        return self.epoch
+
+    def loss_function(self):
+        return type(self.loss_function).__name__()
 
     def run(self):
         trainloader = self.train_data()

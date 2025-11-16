@@ -1,14 +1,15 @@
 from typing import override
-from gpytorch.kernels import MultitaskKernel, RBFKernel, ScaleKernel
+
+import gpytorch
 import numpy as np
 import torch
+from cuml.metrics import mean_absolute_error
+from gpytorch.kernels import MultitaskKernel, RBFKernel, ScaleKernel
 from torch import nn
 from tqdm import tqdm
-from cuml.metrics import mean_absolute_error
-from model import Config, Model, MeteoData
-import gpytorch
-from utils import track_time
 
+from model import Config, MeteoData, Model
+from utils import track_time
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -77,6 +78,9 @@ class GP(gpytorch.models.ApproximateGP):
 
 
 class GaussianProcess(Model):
+    epoch: int
+    lr: float
+
     def __init__(
         self,
         likelihood,
@@ -93,6 +97,15 @@ class GaussianProcess(Model):
 
     def name(self) -> str:
         return "Gaussian Process"
+
+    def inducing_points(self) -> int:
+        return self.n_inducing_points
+
+    def get_learning_rate(self) -> float:
+        return self.lr
+
+    def get_epoch(self) -> int:
+        return self.epoch
 
     @override
     def train_data(self):

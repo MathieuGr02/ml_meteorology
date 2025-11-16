@@ -55,6 +55,12 @@ class Model(ABC):
     def name(self) -> str:
         pass
 
+    def get_train_time(self) -> float:
+        return self.train_time
+
+    def get_predict_time(self) -> float:
+        return self.predict_time
+
     def key_index(self, key: str):
         return self.keys.index(key)
 

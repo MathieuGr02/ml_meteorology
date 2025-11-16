@@ -183,13 +183,17 @@ def get_search_models(
 
     models += (nn_models,)
 
+    inducing_points = [100, 250, 500, 750, 1000]
+
     gp_models = []
-    for inducing_points in [100, 250, 500, 750, 1000]:
+    for inducing_points, learning_rate, epoch in itertools.product(
+        inducing_points, learning_rates, epochs
+    ):
         likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=15)
         gp = GaussianProcess(
             likelihood=likelihood,
-            lr=0.01,
-            epoch=1,
+            lr=learning_rate,
+            epoch=epoch,
             n_inducing_points=inducing_points,
             config=config,
         )
@@ -237,26 +241,56 @@ class Action(Enum):
 
 def search(
     config: Config,
-    keys: str | list[str],
     ignore_lr=False,
     ignore_knr=False,
     ignore_nn=False,
     ignore_gp=False,
 ):
-    lr_errors = {}
-    knr_errors = {}
-    nn_errors = {}
-    gp_errors = {}
-
-    # Initialize dictionaries for each key s.t. { "<key>": { "specific model - 1": [<errors>], ..., "specific model - n": [<errors>] } }
-    for key in keys:
-        lr_errors[key] = defaultdict(list)
-        knr_errors[key] = defaultdict(list)
-        nn_errors[key] = defaultdict(list)
-        gp_errors[key] = defaultdict(list)
-
-    if type(keys) is str:
-        keys = [keys]
+    lr_metrics = pd.DataFrame(
+        columns=[
+            "degree",
+            "lead",
+            "key",
+            "mae",
+            "train_time",
+            "predict_time",
+        ]
+    )
+    knr_metrics = pd.DataFrame(
+        columns=[
+            "neighbours",
+            "lead",
+            "key",
+            "mae",
+            "train_time",
+            "predict_time",
+        ]
+    )
+    nn_metrics = pd.DataFrame(
+        columns=[
+            "network",
+            "epoch",
+            "learing_rate",
+            "loss_function",
+            "lead",
+            "key",
+            "mae",
+            "train_time",
+            "predict_time",
+        ]
+    )
+    gp_metrics = pd.DataFrame(
+        columns=[
+            "inducing_points",
+            "epoch",
+            "learning_rate",
+            "lead",
+            "key",
+            "mae",
+            "train_time",
+            "predict_time",
+        ]
+    )
 
     for lead in lead_times:
         print(f"Running search for lead time {lead}")
@@ -280,79 +314,145 @@ def search(
             for model in lr_models:
                 model.run()
 
-                # TODO: LR MODEL NAME DISTINCTION
                 for key in keys:
-                    lr_errors[key][""].append(model.mae(key))
+                    lr_metrics.append(
+                        {
+                            "degree": model,
+                            "lead": lead,
+                            "key": key,
+                            "mae": model.mae(key),
+                            "train_time": model.get_train_time(),
+                            "predict_time": model.get_predict_time(),
+                        }
+                    )
 
         if not ignore_knr:
-            for knr in knr_models:
-                knr.run()
+            for model in knr_models:
+                model.run()
                 for key in keys:
-                    for size, error in zip(
-                        knr.get_neighbour_sizes(),
-                        knr.mae(key),
+                    for size, mae in zip(
+                        model.get_neighbour_sizes(),
+                        model.mae(key),
                     ):
-                        knr_errors[key][size].append(error)
+                        knr_metrics.append(
+                            {
+                                "neighbours": size,
+                                "lead": lead,
+                                "key": key,
+                                "mae": mae,
+                                "train_time": model.get_train_time(),
+                                "predict_time": model.get_predict_time(),
+                            }
+                        )
 
         if not ignore_nn:
             for model in nn_models:
                 model.run()
 
                 for key in keys:
-                    nn_errors[key][model.network_name()].append(model.mae(key))
+                    nn_metrics.append(
+                        {
+                            "network": model.network_name(),
+                            "learning_rate": model.get_learning_rate(),
+                            "epoch": model.get_epoch(),
+                            "loss_function": model.loss_function(),
+                            "lead": lead,
+                            "key": key,
+                            "mae": model.mae(key),
+                            "train_time": model.get_train_time(),
+                            "predict_time": model.get_predict_time(),
+                        }
+                    )
 
         if not ignore_gp:
             for model in gp_models:
                 model.run()
 
-                # TODO: GP MODEL NAME DISTINCTION
                 for key in keys:
-                    gp_errors[key][""].append(model.mae(key))
+                    gp_metrics.append(
+                        {
+                            "inducing_points": model.inducing_points(),
+                            "learning_rate": model.get_learning_rate(),
+                            "epoch": model.get_epoch(),
+                            "lead": lead,
+                            "key": key,
+                            "mae": model.mae(key),
+                            "train_time": model.get_train_time(),
+                            "predict_time": model.get_predict_time(),
+                        }
+                    )
 
     if not ignore_lr:
-        with open("outputs/lr_errors.json", "w") as f:
-            json_string = json.dumps(lr_errors, indent=4)
-            f.write(json_string)
+        lr_metrics.to_csv("output/lr_metrics.csv", index=False)
 
     if not ignore_knr:
-        with open("outputs/knr_errors.json", "w") as f:
-            json_string = json.dumps(knr_errors, indent=4)
-            f.write(json_string)
+        knr_metrics.to_csv("output/knr_metrics.csv", index=False)
 
     if not ignore_nn:
-        with open("outputs/nn_errors.json", "w") as f:
-            json_string = json.dumps(nn_errors, indent=4)
-            f.write(json_string)
+        nn_metrics.to_csv("output/nn_metrics.csv", index=False)
 
     if not ignore_gp:
-        with open("outputs/gp_errors.json", "w") as f:
-            json_string = json.dumps(gp_errors, indent=4)
-            f.write(json_string)
+        gp_metrics.to_csv("output/gp_metrics.csv", index=False)
 
 
-def compare(config: Config):
-    lead_times = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    lr, knr, mlp, gp = get_compare_models(config)
+def compare(config: Config, keys: list[str]):
+    lr_metrics = pd.read_csv("output/lr_metrics.csv")
+    knr_metrics = pd.read_csv("output/knr_metrics.csv")
+    nn_metrics = pd.read_csv("output/nn_metrics.csv")
+    gp_metrics = pd.read_csv("output/gp_metrics.csv")
+
+    combined = pd.DataFrame(
+        columns=["model", "lead", "mae", "train_time", "predict_time"]
+    )
+
+    fig, axs = plt.subplots(1, len(keys), figsize=(10, 5))
+    for i, key in enumerate(keys):
+        plt.legend()
+        sns.lineplot(data=combined, x="lead", y="mae", hue="model", ax=axs[i])
+        axs[i].set_title(f"Model comparison for {key}")
+        axs[i].set_xlabel("Lead time")
+        axs[i].set_ylabel(f"{key} MAE")
+
+    plt.savefig(f"figures/compare_models_mae.png")
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    sns.barplot(data=combined, x="model", y="train_time", ax=ax)
+    ax.set_title("Model training time comparison")
+    ax.set_ylabel("Train time (s)")
+    plt.savefig(f"figures/compare_models_train_time.png")
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    sns.barplot(data=combined, x="model", y="predict_time", ax=ax)
+    ax.set_title("Model prediction time comparison")
+    ax.set_ylabel("Prediction time (s)")
+    plt.savefig(f"figures/compare_models_predict_time.png")
 
 
-def plot_search():
-    print("HERE", os.getcwd())
-    with open("output/knr_errors.json", "r") as f:
-        knr_errors = json.load(f)
+def plot_search(keys: list[str]):
+    lr_metrics = pd.read_csv("output/lr_metrics.csv")
+    knr_metrics = pd.read_csv("output/knr_metrics.csv")
+    nn_metrics = pd.read_csv("output/nn_metrics.csv")
+    gp_metrics = pd.read_csv("output/gp_metrics.csv")
+
+    lr_metrics.groupby(["degree", "key"])
+    knr_metrics.groupby(["neighbours", "key"])
+    nn_metrics.groupby(["key"])
+    nn_metrics.groupby(["key"])
 
     fig, axs = plt.subplots(1, len(knr_errors.keys()), figsize=(20, 5), sharey=True)
     fig.suptitle("K Nearest Neighbour Regression for different neighbourhood sizes")
     for i, (neighbours, lead_errors) in enumerate(knr_errors.items()):
+        plt.legend()
         axs[i].plot(lead_times, lead_errors)
-        axs[i].set_title(neighbours)
+        axs[i].set_xlabel("Lead time")
+        axs[i].set_ylabel(f"{key} MAE")
+        axs[i].set_title(f"#Neighbours: {neighbours}")
 
     plt.savefig("knr_lead_time.png")
 
 
 if __name__ == "__main__":
     action = Action.PlotSearch
-
-    key = "Temperature-StdPressureLev-1000.0"
 
     if action.is_download():
         print("Downloading files")

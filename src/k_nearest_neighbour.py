@@ -35,12 +35,14 @@ class KNearestNeighbourRegression(Model):
             lambda: self.knr.fit(self.X_train, self.y_train)
         )
 
-        self.dists, self.indices = self.knr.kneighbors(self.X_test)
-
-        print(f"Running {self.name()} predict")
-        self.predict_time, self.output = track_time(
-            lambda: self.knr.predict(self.X_test)
+        self.predict_time, (self.dists, self.indices) = track_time(
+            lambda: self.knr.kneighbors(self.X_test)
         )
+
+        # print(f"Running {self.name()} predict")
+        # self.predict_time, self.output = track_time(
+        #     lambda: self.knr.predict(self.X_test)
+        # )
 
     @override
     def mae(self, key: str, y_test=None, output=None) -> list[float]:
