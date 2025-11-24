@@ -26,34 +26,31 @@ class KNearestNeighbourRegression(Model):
     def get_neighbour_sizes(self) -> list[int]:
         return self.neighbours
 
-    def run(self):
-        self.X_train, self.y_train, *_ = super().train_data()
-        self.X_test, self.y_test, *_ = super().test_data()
+    @override
+    def train(self, X=None, y=None):
+        if X is None:
+            X = self.X_train
 
-        print(f"Running {self.name()} fit")
-        self.train_time, _ = track_time(
-            lambda: self.knr.fit(self.X_train, self.y_train)
-        )
+        if y is None:
+            y = self.y_train
+        self.train_time, _ = track_time(lambda: self.knr.fit(X, y))
 
+    @override
+    def predict(self, X=None):
+        if X is None:
+            X = self.X_test
         self.predict_time, (self.dists, self.indices) = track_time(
-            lambda: self.knr.kneighbors(self.X_test)
+            lambda: self.knr.kneighbors(X)
         )
-
-        # print(f"Running {self.name()} predict")
-        # self.predict_time, self.output = track_time(
-        #     lambda: self.knr.predict(self.X_test)
-        # )
 
     @override
     def mae(self, key: str, y_test=None, output=None) -> list[float]:
-        print(super().mae(key, self.y_test, self.output))
-
         maes = []
 
         for k in self.neighbours:
             indices_k = self.indices[:, :k]
-            y_pred = np.mean(self.y_train[indices_k], axis=1)
+            self.outputs = np.mean(self.y_train[indices_k], axis=1)
 
-            maes.append(super().mae(key, self.y_test, y_pred))
+            maes.append(super().mae(key, self.y_test, self.outputs))
 
         return maes

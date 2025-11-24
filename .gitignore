@@ -213,3 +213,6 @@ figures/
 *.png
 *.csv
 *.bkp
+
+.zed
+.idea

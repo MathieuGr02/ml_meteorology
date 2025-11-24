@@ -1,12 +1,15 @@
 import itertools
+from collections.abc import Callable
 from typing import Any, override
 
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import seaborn as sns
 import torch
 from torch import nn
+from torch.optim.optimizer import Kwargs
 from tqdm import tqdm
 
 from model import Config, Model
@@ -18,15 +21,30 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class NeuralNetwork(Model):
-    epoch: int
     lr: float
+    epoch: int
+    batch_size: int
 
-    def __init__(self, network, loss_function, lr: float, epoch: int, config: Config):
+    def __init__(
+        self,
+        network,
+        loss_function,
+        config: Config,
+        lr: float = 0.1,
+        epoch: int = 50,
+        batch_size: int = 512,
+        optimizer=None,
+    ):
         super().__init__(config)
         self.network = network
         self.lr = lr
         self.epoch = epoch
         self.loss_function = loss_function
+        self.batch_size = batch_size
+        if optimizer is None:
+            self.optimizer = torch.optim.Adam(self.network.parameters(), lr=self.lr)
+        else:
+            self.optimizer = optimizer
 
     def name(self) -> str:
         return "Neural Network"
@@ -40,30 +58,38 @@ class NeuralNetwork(Model):
     def get_epoch(self) -> int:
         return self.epoch
 
-    def loss_function(self):
-        return type(self.loss_function).__name__()
+    def get_loss_function(self):
+        return type(self.loss_function).__name__
 
     def run(self):
-        trainloader = self.train_data()
-        testloader = self.test_data()
+        trainloader = self.trainloader()
+        testloader = self.trainloader()
 
-        self.train_time, _ = track_time(lambda: self._train(trainloader))
-        self.predict_time, _ = track_time(lambda: self._predict(testloader))
+        self.train(trainloader)
+        self.predict(testloader)
+
+    @override
+    def train(self, X, y=None):
+        self.train_time, _ = track_time(lambda: self._train(X))
+
+    @override
+    def predict(self, X):
+        self.predict_time, _ = track_time(lambda: self._predict(X))
 
     def _train(self, trainloader):
         self.network.to(device)
 
         epoch_losses = []
 
-        optimizer = torch.optim.Adam(self.network.parameters(), lr=self.lr)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.99)
+
         for epoch in range(self.epoch):
             running_loss = 0
             count = 0
-
-            for i, data in enumerate(trainloader, 0):
-                X, y = data
+            minibatch_iter = tqdm(trainloader, desc="Minibatch", leave=False)
+            for X, y in minibatch_iter:
                 X, y = X.to(device).float(), y.to(device).float()
-                optimizer.zero_grad()
+                self.optimizer.zero_grad()
 
                 outputs = self.network(X)
 
@@ -71,10 +97,12 @@ class NeuralNetwork(Model):
 
                 loss.backward()
 
-                optimizer.step()
+                self.optimizer.step()
 
                 running_loss += loss.item()
                 count += 1
+
+            scheduler.step()
 
             avg_loss = running_loss / count
             epoch_losses.append(avg_loss)
@@ -89,23 +117,21 @@ class NeuralNetwork(Model):
                 X, y = X.to(device).float(), y.to(device).float()
                 outputs += (self.network(X).cpu(),)
 
-        self.output = np.row_stack(outputs)
+        self.outputs = np.row_stack(outputs)
 
-    @override
-    def train_data(self) -> Any:
-        X_train, y_train, self.keys, _ = super().train_data()
+    def trainloader(self) -> Any:
+        X_train, y_train, *_ = super().get_train_data()
         train_data = MeteoData(X_train, y_train)
         trainloader = torch.utils.data.DataLoader(
-            train_data, batch_size=512, shuffle=True, num_workers=10
+            train_data, batch_size=self.batch_size, shuffle=True, num_workers=10
         )
         return trainloader
 
-    @override
-    def test_data(self) -> Any:
-        self.X_test, self.y_test, *_ = super().test_data()
+    def testloader(self) -> Any:
+        self.X_test, self.y_test, *_ = super().get_test_data()
         test_data = MeteoData(self.X_test, self.y_test)
         testloader = torch.utils.data.DataLoader(
-            test_data, batch_size=512, shuffle=True, num_workers=10
+            test_data, batch_size=self.batch_size, shuffle=True, num_workers=10
         )
         return testloader
 
@@ -136,88 +162,6 @@ class MeteoData:
 
     def get_features(self) -> int:
         return self.X.shape[1]
-
-
-def prepare_data(group):
-    from aggregate import get_data
-
-    print("Getting data")
-    training, training_target, test, test_target = get_data(group)
-
-    print(f"Shape {training.shape}")
-    test_data = MeteoData(test, test_target)
-
-    testloader = torch.utils.data.DataLoader(
-        test_data, batch_size=512, shuffle=True, num_workers=10
-    )
-
-    return trainloader, testloader
-
-
-def get_network(name: str, features: int):
-    match name:
-        case "N1":
-            return MLP(
-                nn.Sequential(
-                    nn.Linear(features, features),
-                    nn.ReLU(),
-                    nn.Linear(features, features),
-                    nn.ReLU(),
-                    nn.Linear(features, 1),
-                ),
-                "N1",
-            )
-        case "N2":
-            return MLP(
-                nn.Sequential(
-                    nn.Linear(features, features * 2),
-                    nn.ReLU(),
-                    nn.Linear(features * 2, features),
-                    nn.ReLU(),
-                    nn.Linear(features, 1),
-                ),
-                "N2",
-            )
-        case "N3":
-            return MLP(
-                nn.Sequential(
-                    nn.Linear(features, features * 2),
-                    nn.ReLU(),
-                    nn.Linear(features * 2, features * 4),
-                    nn.ReLU(),
-                    nn.Linear(features * 4, features * 2),
-                    nn.ReLU(),
-                    nn.Linear(features * 2, features),
-                    nn.ReLU(),
-                    nn.Linear(features, 1),
-                ),
-                "N3",
-            )
-        case "N4":
-            return MLP(
-                nn.Sequential(
-                    nn.Linear(features, features * 2),
-                    nn.ReLU(),
-                    nn.Linear(features * 2, features * 4),
-                    nn.ReLU(),
-                    nn.Linear(features * 4, features * 8),
-                    nn.ReLU(),
-                    nn.Linear(features * 8, features * 4),
-                    nn.ReLU(),
-                    nn.Linear(features * 4, features * 2),
-                    nn.ReLU(),
-                    nn.Linear(features * 2, features),
-                    nn.ReLU(),
-                    nn.Linear(features, 1),
-                ),
-                "N4",
-            )
-
-
-def reset_weights(network):
-    for layer in network.children():
-        if hasattr(layer, "reset_parameters"):
-            layer.reset_parameters()
 
 
 if __name__ == "__main__":

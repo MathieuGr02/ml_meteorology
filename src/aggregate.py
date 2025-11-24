@@ -140,15 +140,19 @@ def aggregate_data(
     )
 
 
-def get_time_data(config: Config, file_keyword: str):
+def get_data(config: Config, file_keyword: str):
+    """
+    Get data
+
+    # Returns
+    - 3D array with (days x data points in grid x features)
+    """
     keys = OrderedSet(["Longitude", "Latitude"])
     lon_low, lon_high = config.lon_low + 180, config.lon_high + 180
     lat_low, lat_high = (
         90 - config.lat_high,
         90 - config.lat_low,
     )
-
-    print(f"{lon_low} - {lon_high} | {lat_low} - {lat_high}")
 
     single, multi_A, multi_D = get_variables()
 
@@ -185,7 +189,12 @@ def get_time_data(config: Config, file_keyword: str):
 
                 # Add key to keys list, and if key has multiple subkeys, add all subkeys
                 if len(subset.dims) == 2:
-                    keys.add(key)
+                    transformed_key = key
+                    if "_A" in key:
+                        transformed_key = key.replace("_A", "")
+                    if "_D" in key:
+                        transformed_key = key.replace("_D", "")
+                    keys.add(transformed_key)
                 else:
                     for dim in list(subset.dims):
                         if dim not in keys:
@@ -204,25 +213,49 @@ def get_time_data(config: Config, file_keyword: str):
             # Key: x has N x k and Key: y has N x l
             # => output N x (k + l - 2) (-2 because of the longitude and latitude which do not get duplicated)
             # Add the feature vector of the day A / D to the cube s.t. it has a shape (2 * #days, #samples, #features)
-            cube.append(combine_feature_vectors(subcube))
+            feature_vectors = combine_feature_vectors(subcube)
+
+            day_time_feature = np.empty(feature_vectors.shape[0])
+            if multi == multi_A:
+                day_time_feature.fill(1)
+            else:
+                day_time_feature.fill(-1)
+
+            # feature_vectors = np.column_stack((feature_vectors, day_time_feature))
+            # keys.add("Time")
+
+            cube.append(feature_vectors)
 
     cube = np.array(cube)
-    steps, samples, features = cube.shape
 
     imp = SimpleImputer(strategy="mean")
 
     for i in range(cube.shape[0]):
         cube[i] = imp.fit_transform(cube[i])
 
+    return cube, keys
+
+
+def get_time_data(config: Config, file_keyword: str):
+    cube, keys = get_data(config, file_keyword)
+    print(cube.shape)
+
+    steps, samples, features = cube.shape
+
     data = None
     targets = None
     for i in range(config.lag, steps - config.leads):
-        lag_subset = cube[i - config.lag : i]
-        y = cube[i + config.leads]
+        print(i)
+        lag_subset = cube[i - config.lag + 1 : i + 1]
+        lead_subset = cube[i + 1 : i + config.leads + 1]
 
         X = lag_subset.transpose(1, 0, 2)
         n, t, f = X.shape
         X = X.reshape(n, f * t)
+
+        y = lead_subset.transpose(1, 0, 2)
+        n, t, f = y.shape
+        y = y.reshape(n, f * t)
 
         if data is None:
             data = X
@@ -237,116 +270,3 @@ def get_time_data(config: Config, file_keyword: str):
     data, targets = np.array(data), np.array(targets)
 
     return data, targets, list(keys), cube.shape
-
-    cube = np.array([cube[i : i + config.lag] for i in range(len(cube) - config.lag)])
-
-    chunks, time, samples, features = cube.shape
-
-    for chunk in range(chunks):
-        training_chunk = cube[chunk]
-        for i in range(training_chunk.shape[0]):
-            training_chunk[i, :] = imp.fit_transform(training_chunk[i, :])
-
-        print(training_chunk.shape)
-        X = training_chunk[:-1].transpose(1, 0, 2)
-        n, t, f = X.shape
-        X = X.reshape(n, f * t)
-        y = training_chunk[-1]
-        print(X.shape)
-        quit()
-
-        if data is None:
-            data = X
-        else:
-            data = np.row_stack((data, X))
-
-        if targets is None:
-            targets = y
-        else:
-            targets = np.row_stack((targets, y))
-
-    data, targets = np.array(data), np.array(targets)
-
-    return data, targets, list(keys), (chunks, time, samples, features)
-
-
-def get_data() -> tuple[
-    npt.NDArray[np.float64],
-    npt.NDArray[np.float64],
-    npt.NDArray[np.float64],
-    npt.NDArray[np.float64],
-]:
-    """
-    Get all data fully prepared.
-
-    # Returns
-    - training data
-    - training target data
-    - test data
-    - test target data
-    """
-    training, target = get_group(group)
-
-    # Get training and test data
-    training_data, training_target_data = aggregate_data(
-        training, target, file_keyword="2015"
-    )
-    test_data, test_target_data = aggregate_data(training, target, file_keyword="2016")
-
-    n, *_ = test_data.shape
-
-    new_training_data = None
-    new_training_target_data = None
-    new_test_data = None
-    new_test_target_data = None
-
-    for i in range(n):
-        training_data_wo_na, training_target_data_wo_na = drop_na(
-            training_data[i], training_target_data[i]
-        )
-        test_data_wo_na, test_target_data_wo_na = drop_na(
-            test_data[i], test_target_data[i]
-        )
-
-        # Scale data
-
-        scaler = StandardScaler()
-        training_data_scaled = scaler.fit_transform(training_data_wo_na)
-        test_data_scaled = scaler.transform(test_data_wo_na)
-
-        # scaler = StandardScaler()
-        # training_target_data_scaled = scaler.fit_transform(training_target_data_wo_na)
-        # test_target_data_scaled = scaler.transform(test_target_data_wo_na)
-
-        if new_training_data is None:
-            new_training_data = training_data_scaled
-        else:
-            new_training_data = np.concatenate(
-                (new_training_data, training_data_scaled)
-            )
-
-        if new_test_data is None:
-            new_test_data = test_data_scaled
-        else:
-            new_test_data = np.concatenate((new_test_data, test_data_scaled))
-
-        if new_training_target_data is None:
-            new_training_target_data = training_target_data_wo_na
-        else:
-            new_training_target_data = np.concatenate(
-                (new_training_target_data, training_target_data_wo_na)
-            )
-
-        if new_test_target_data is None:
-            new_test_target_data = test_target_data_wo_na
-        else:
-            new_test_target_data = np.concatenate(
-                (new_test_target_data, test_target_data_wo_na)
-            )
-
-    return (
-        new_training_data,
-        new_training_target_data,
-        new_test_data,
-        new_test_target_data,
-    )

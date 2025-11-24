@@ -3,7 +3,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-from cuml.metrics import mean_absolute_error
+from cuml.metrics import mean_absolute_error, mean_squared_error, mean_squared_log_error
 
 from aggregate import get_time_data
 from config import Config
@@ -26,29 +26,28 @@ class Model(ABC):
     predict_time: float
     X_test: npt.NDArray[np.float64]
     y_test: npt.NDArray[np.float64]
-    output: npt.NDArray[np.float64]
+    outputs: npt.NDArray[np.float64]
     keys: list[str]
+    auto_predict: bool
 
     def __init__(self, config: Config) -> None:
         self.config = config
 
-        if self.config.X_test is not None:
-            self.X_test = self.config.X_test
+    def run(self):
+        if self.X_train is None or self.y_train is None:
+            self.load_train_data()
+        if self.X_test is None or self.y_test is None:
+            self.load_test_data()
 
-        if self.config.X_train is not None:
-            self.X_train = self.config.X_train
-
-        if self.config.y_train is not None:
-            self.y_train = self.config.y_train
-
-        if self.config.y_test is not None:
-            self.y_test = self.config.y_test
-
-        if self.config.keys is not None:
-            self.keys = self.config.keys
+        self.train(self.X_train, self.y_train)
+        self.predict(self.X_test)
 
     @abstractmethod
-    def run(self):
+    def train(self, X, y):
+        pass
+
+    @abstractmethod
+    def predict(self, X):
         pass
 
     @abstractmethod
@@ -69,29 +68,41 @@ class Model(ABC):
             y_test = self.y_test
 
         if output is None:
-            output = self.output
+            output = self.outputs
 
         i = self.key_index(key)
-        return mean_absolute_error(y_test[:, i], output[:, i])
+        mae = mean_absolute_error(y_test[:, i], output[:, i])
+        return mae
 
-    def train_data(self) -> Any:
-        if self.X_train is not None and self.y_train is not None:
-            return self.X_train, self.y_train, None, None
-        else:
-            self.X_train, self.y_train, self.keys, self.shape = get_time_data(
-                config=self.config, file_keyword=self.config.train_year
-            )
-            return self.X_train, self.y_train, self.keys, self.shape
+    def rmse(self, key: str, y_test=None, output=None) -> float | list[float]:
+        if y_test is None:
+            y_test = self.y_test
 
-    def test_data(self) -> Any:
-        if (
-            self.X_train is not None
-            and self.y_train is not None
-            and self.keys is not None
-        ):
-            return self.X_test, self.y_test, self.keys, None
-        else:
-            self.X_test, self.y_test, self.keys, self.shape = get_time_data(
-                config=self.config, file_keyword=self.config.test_year
-            )
-            return self.X_test, self.y_test, self.keys, self.shape
+        if output is None:
+            output = self.outputs
+
+        i = self.key_index(key)
+        rmse = mean_squared_error(y_test[:, i], output[:, i], squared=False)
+        return rmse
+
+    def set_train_data(self, X, y, keys, shape):
+        self.X_train, self.y_train, self.keys, self.shape = X, y, keys, shape
+
+    def set_test_data(self, X, y, keys, shape):
+        self.X_test, self.y_test, self.keys, self.shape = X, y, keys, shape
+
+    def load_train_data(self):
+        self.X_train, self.y_train, self.keys, self.shape = get_time_data(
+            config=self.config, file_keyword=self.config.train_year
+        )
+
+    def load_test_data(self):
+        self.X_test, self.y_test, self.keys, self.shape = get_time_data(
+            config=self.config, file_keyword=self.config.test_year
+        )
+
+    def get_train_data(self) -> Any:
+        return self.X_train, self.y_train, self.keys, self.shape
+
+    def get_test_data(self) -> Any:
+        return self.X_test, self.y_test, self.keys, self.shape

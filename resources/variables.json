@@ -1,4 +1,13 @@
 {
   "single_variables": ["LandSeaMask", "Topography"],
-  "multi_variables": ["Temperature", "EmisIR"]
+  "multi_variables": [
+    "Temperature",
+    "EmisIR",
+    "RelHum",
+    "TotO3",
+    "FineCloudFrc",
+    "SurfAirTemp",
+    "RelHumSurf",
+    "SurfPres_Forecast"
+  ]
 }
