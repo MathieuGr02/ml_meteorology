@@ -1,29 +1,39 @@
 name: gpu
 channels:
   - rapidsai
-  - nvidia
-  - pytorch
   - conda-forge
+  - nvidia
   - defaults
+
 dependencies:
+  # Core
   - python=3.12
-  - cudf=25.02
-  - cuml=25.02
-  - pytorch
-  - torchvision
-  - torchaudio
-  - pytorch-cuda=12.1
+
+  # RAPIDS (CUDA 13 builds start at 25.10)
+  - cudf=25.10
+  - cuml=25.10
+  - cuda-version=13.0 # pulls the CUDA 13.x runtime for RAPIDS :contentReference[oaicite:0]{index=0}
+
+  # PyData stack
   - numpy
   - pandas
   - scikit-learn
   - xarray
   - netcdf4
   - h5netcdf
+
+  # Viz / UX
   - matplotlib
   - seaborn
   - tqdm
   - jupyterlab
-  - pip
+
+  # Misc
   - python-dotenv
-  - pip:
-      - cupy-cuda12x
+  - pip
+
+  - gpytorch
+
+  - cupy
+
+  - psutil

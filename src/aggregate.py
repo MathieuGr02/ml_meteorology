@@ -140,7 +140,7 @@ def aggregate_data(
     )
 
 
-def get_data(config: Config, file_keyword: str):
+def get_data(config: Config, file_keyword: str | list[str]):
     """
     Get data
 
@@ -154,12 +154,20 @@ def get_data(config: Config, file_keyword: str):
         90 - config.lat_low,
     )
 
+    print(f"Getting data. Filtering to files containing {file_keyword}")
+
     single, multi_A, multi_D = get_variables()
 
-    files = os.listdir("./data")
+    files = os.listdir("./newdata")
 
     if file_keyword is not None:
-        files = filter(lambda f: f.__contains__(file_keyword), files)
+        if type(file_keyword) is list:
+            new_files = []
+            for keyword in file_keyword:
+                new_files.extend(filter(lambda f: f.__contains__(keyword), files))
+            files = new_files
+        else:
+            files = filter(lambda f: f.__contains__(file_keyword), files)
 
     files = sorted(
         files,
@@ -171,7 +179,8 @@ def get_data(config: Config, file_keyword: str):
     cube = []
 
     for file in files:
-        dataset = xr.open_dataset(f"./data/{file}")
+        print(f"Reading {file}")
+        dataset = xr.open_dataset(f"./newdata/{file}")
 
         # Iterate over A and D variables
         # Process A and then D of the same day to add them after eachother in the matrix to represent 12 h skips
@@ -236,18 +245,20 @@ def get_data(config: Config, file_keyword: str):
     return cube, keys
 
 
-def get_time_data(config: Config, file_keyword: str):
+def get_time_data(config: Config, file_keyword: str | list[str]):
+    print("Getting time data")
     cube, keys = get_data(config, file_keyword)
+
     print(cube.shape)
 
     steps, samples, features = cube.shape
 
     data = None
     targets = None
+    print("Creating time series data")
     for i in range(config.lag, steps - config.leads):
-        print(i)
         lag_subset = cube[i - config.lag + 1 : i + 1]
-        lead_subset = cube[i + 1 : i + config.leads + 1]
+        lead_subset = cube[i + 1 : i + config.leads + 1, :, 4:]
 
         X = lag_subset.transpose(1, 0, 2)
         n, t, f = X.shape
@@ -260,13 +271,13 @@ def get_time_data(config: Config, file_keyword: str):
         if data is None:
             data = X
         else:
-            data = np.row_stack((data, X))
+            data = np.vstack((data, X))
 
         if targets is None:
             targets = y
         else:
-            targets = np.row_stack((targets, y))
+            targets = np.vstack((targets, y))
 
     data, targets = np.array(data), np.array(targets)
 
-    return data, targets, list(keys), cube.shape
+    return data, targets, list(keys)[4:], cube.shape

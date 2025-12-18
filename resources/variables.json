@@ -6,8 +6,14 @@
     "RelHum",
     "TotO3",
     "FineCloudFrc",
-    "SurfAirTemp",
     "RelHumSurf",
-    "SurfPres_Forecast"
+    "SurfSkinTemp",
+    "SurfAirTemp",
+    "SurfPres_Forecast",
+    "TropHeight",
+    "OLR",
+    "ClrOLR",
+    "CloudTopPres",
+    "CloudTopTemp"
   ]
 }

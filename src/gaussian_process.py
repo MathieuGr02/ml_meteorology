@@ -3,13 +3,10 @@ from typing import override
 import gpytorch
 import numpy as np
 import torch
-from cuml.metrics import mean_absolute_error
-from gpytorch.kernels import MultitaskKernel, RBFKernel, ScaleKernel
-from torch import nn
 from tqdm import tqdm
 
 from model import Config, MeteoData, Model
-from utils import track_time
+from resource_tracker import ResourceTracker
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -52,40 +49,6 @@ class GP(gpytorch.models.ApproximateGP):
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
 
-"""
-class GP(gpytorch.models.ApproximateGP):
-    def __init__(self, points, features):
-        print(points.shape)
-        variational_distribution = CholeskyVariationalDistribution(
-            points.size(0), num_features=features
-        )
-        base_strategy = VariationalStrategy(
-            self,
-            points,
-            variational_distribution,
-            learn_inducing_locations=True,
-        )
-
-        variational_strategy = IndependentMultitaskVariationalStrategy(
-            base_strategy, num_tasks=features
-        )
-
-        super(GP, self).__init__(variational_strategy)
-        self.mean_module = gpytorch.means.MultitaskMean(
-            gpytorch.means.ConstantMean(), num_tasks=features
-        )
-        self.covar_module = gpytorch.kernels.MultitaskKernel(
-            gpytorch.kernels.RBFKernel(), num_tasks=features, rank=1
-        )
-
-    def forward(self, x):
-        mean = self.mean_module(x)
-        covar = self.covar_module(x)
-        return gpytorch.distributions.MultitaskMultivariateNormal(mean, covar)
-
-"""
-
-
 class GaussianProcess(Model):
     epoch: int
     lr: float
@@ -99,8 +62,9 @@ class GaussianProcess(Model):
         config: Config,
         input: int,
         output: int,
+        batch_size: int = 1024,
         lr: float = 0.1,
-        epoch: int = 50,
+        epoch: int = 30,
     ):
         super().__init__(config)
         self.lr = lr
@@ -109,6 +73,7 @@ class GaussianProcess(Model):
         self.likelihood = likelihood
         self.input = input
         self.output = output
+        self.batch_size = batch_size
 
     def name(self) -> str:
         return "Gaussian Process"
@@ -122,52 +87,38 @@ class GaussianProcess(Model):
     def get_epoch(self) -> int:
         return self.epoch
 
-    def trainloader(self):
-        X_train, y_train, self.keys, self.shape = super().get_train_data()
+    def dataloader(self, X, y, create_inducing_points: bool = False):
+        inducing_points = None
+        if create_inducing_points:
+            inducing_points = torch.tensor(
+                X[
+                    np.random.choice(X.shape[0], self.n_inducing_points, replace=False),
+                    :,
+                ],
+                dtype=torch.float32,
+            ).to(device)
 
-        self.inducing_points = torch.tensor(
-            X_train[
-                np.random.choice(
-                    X_train.shape[0], self.n_inducing_points, replace=False
-                ),
-                :,
-            ],
-            dtype=torch.float32,
-        ).to(device)
+        X = torch.tensor(X, dtype=torch.float32)
+        y = torch.tensor(y, dtype=torch.float32)
 
-        X_train = torch.tensor(X_train, dtype=torch.float32)
-        y_train = torch.tensor(y_train, dtype=torch.float32)
+        data = MeteoData(X, y)
 
-        train_data = MeteoData(X_train, y_train)
-
-        trainloader = torch.utils.data.DataLoader(
-            train_data, batch_size=256, shuffle=True, num_workers=0
+        loader = torch.utils.data.DataLoader(
+            data, batch_size=self.batch_size, num_workers=10
         )
 
-        return self.inducing_points, trainloader
+        return loader, inducing_points
 
-    def testloader(self):
-        self.X_test, self.y_test, *_ = super().get_test_data()
-
-        X_test = torch.tensor(self.X_test, dtype=torch.float32)
-        y_test = torch.tensor(self.y_test, dtype=torch.float32)
-
-        test_data = MeteoData(X_test, y_test)
-
-        testloader = torch.utils.data.DataLoader(
-            test_data, batch_size=256, shuffle=True, num_workers=0
-        )
-
-        return testloader
-
-    def create_model(self):
-        self.gp = GP(self.inducing_points, num_inputs=self.input, num_tasks=self.output)
+    def create_model(self, inducing_points):
+        self.gp = GP(inducing_points, num_inputs=self.input, num_tasks=self.output)
         self.gp.cuda().train()
         self.likelihood.cuda().train()
 
-    def run(self):
-        self.inducing_points, trainloader = self.trainloader()
-        testloader = self.testloader()
+    def run(self, X_train, y_train, X_test, y_test):
+        trainloader, inducing_points = self.dataloader(
+            X_train, y_train, create_inducing_points=True
+        )
+        testloader = self.dataloader(X_test, y_test)
 
         self.create_model()
 
@@ -175,12 +126,19 @@ class GaussianProcess(Model):
         self.predict(testloader)
 
     @override
-    def train(self, X, y=None):
-        self.train_time, _ = track_time(lambda: self._train(X))
+    def train(self, data):
+        with ResourceTracker() as rt:
+            self._train(data)
+
+        self.train_resource = rt.results()
 
     @override
     def predict(self, X):
-        self.predict_time, _ = track_time(lambda: self._predict(X))
+        with ResourceTracker() as rt:
+            outputs = self._predict(X)
+
+        self.predict_resource = rt.results()
+        return outputs
 
     def _train(self, trainloader):
         optimizer = torch.optim.Adam(self.gp.parameters(), lr=self.lr)
@@ -190,7 +148,10 @@ class GaussianProcess(Model):
             self.likelihood, self.gp, num_data=len(trainloader.dataset)
         ).cuda()
 
-        for epoch_i in range(self.epoch):
+        for epoch in range(self.epoch):
+            epoch_loss = 0.0
+            n_batches = 0
+
             minibatch_iter = tqdm(trainloader, desc="Minibatch", leave=False)
 
             with (
@@ -212,6 +173,13 @@ class GaussianProcess(Model):
                     loss.backward()
                     optimizer.step()
 
+                    epoch_loss += loss.item()
+                    n_batches += 1
+
+                print(
+                    f"(lr: {scheduler._last_lr[-1]}) Epoch {epoch}: loss: {epoch_loss / n_batches:.4f}"
+                )
+
             scheduler.step()
 
     def _predict(self, testloader):
@@ -225,4 +193,4 @@ class GaussianProcess(Model):
                 X, y = X.to(device).float(), y.to(device).float()
                 outputs += (self.likelihood(self.gp(X)).mean.cpu().detach(),)
 
-        self.outputs = np.row_stack(outputs)
+        return np.row_stack(outputs)

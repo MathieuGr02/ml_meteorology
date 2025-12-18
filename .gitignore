@@ -207,7 +207,9 @@ marimo/_lsp/
 __marimo__/
 
 rawdata/
+newrawdata/
 data/
+newdata/
 figures/
 *.txt
 *.png

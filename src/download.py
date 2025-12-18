@@ -35,9 +35,9 @@ def download_files():
 
     # Summary files of required data
     training_data_meta_path = (
-        "subset_AIRX3STD_7.0_20251015_153006_20150104-20153004.txt"
+        "subset_AIRX3STD_7.0_20251126_221011_20140101-20150101.txt"
     )
-    test_data_meta_path = "subset_AIRX3STD_7.0_20251015_153228_20160104-20163004.txt"
+    test_data_meta_path = "subset_AIRX3STD_7.0_20251126_221204_20150101-20160101.txt"
 
     for meta_path in [training_data_meta_path, test_data_meta_path]:
         with open(meta_path, "r") as file:
@@ -51,7 +51,7 @@ def download_files():
                     sub_line = sub_line.split("?")
                     url, rest = sub_line[0], sub_line[1:]
 
-                    file = f"./rawdata/{url.split('/')[-1]}"
+                    file = f"./newrawdata/{url.split('/')[-1]}"
 
                     if Path(file).exists():
                         continue
